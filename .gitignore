@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+LoincPartLink_Supplementary.csv
+Loinc.mdb
+zhCN5LinguisticVariant.csv
+LoincPartLink_Primary.csv
