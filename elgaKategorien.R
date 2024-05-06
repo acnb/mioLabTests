@@ -190,4 +190,4 @@ codes_und_kategorien <- all_lab %>%
   transmute(kategorie = display.y, code, unique_display)
 
 
-write_excel_csv2(codes_und_kategorien, file = 'rse/codeUndKategorien.csv')
+write_excel_csv2(codes_und_kategorien, file = 'res/codeUndKategorien.csv')
