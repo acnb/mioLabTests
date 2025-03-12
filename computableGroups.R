@@ -44,6 +44,8 @@ assignMicro <- function(loinc){
     select(-genus) |>
     mutate(group = if_else(str_detect(COMPONENT, 'Virus|virus|HIV|HTLV'), 
                            'Virus', group)) |>
+    mutate(group = if_else(str_detect(COMPONENT, '^Candida'), Mycology, 
+                           group)) |>
     bind_rows(loincExclude)
 }
 
@@ -155,7 +157,7 @@ assignToxoTDM <- function(loinc){
 
 }
 
-applyHormones <- function(loinc){
+assignHormones <- function(loinc){
   hormones <- read_html("https://en.wikipedia.org/wiki/List_of_human_hormones") |>
     html_elements('table.wikitable') |>
     html_table() |>
@@ -194,10 +196,7 @@ applyHormones <- function(loinc){
     
 }
 
-applyVitamins <- function(loinc){
-
-  pattern <- str_c(c(hormones$name2, "Angiotensin"), '', collapse = '|')
-  
+assignVitamins <- function(loinc){
   elgaRaw <- read_excel(
     "data/ELGA/ValueSet-elga-laborparameter.1.propcsv.xlsx", skip = 3)
   
@@ -212,13 +211,89 @@ applyVitamins <- function(loinc){
   loincExclude <- loinc |>
     filter(!is.na(group))
   
-  res <- loinc |>
+  loinc |>
     filter(!LOINC_NUM %in% loincExclude$LOINC_NUM) |>
     mutate(group = if_else(str_detect(COMPONENT, pattern), 
                            'vitamins', group)) |>
     bind_rows(loincExclude)
   
 }
+
+assignChem <- function(loinc){
+  elgaRaw <- read_excel(
+    "data/ELGA/ValueSet-elga-laborparameter.1.propcsv.xlsx", skip = 3)
+  
+  proteinsElga <- elgaRaw |>
+    filter(parent == '05190')
+  
+  loinc <- loinc |>
+    mutate(baseComponent = str_split_i(COMPONENT, '\\.|\\^|/', 1))
+  
+  proteins <- loinc |>
+    filter(LOINC_NUM %in% proteinsElga$code) %>%
+    pull(baseComponent) |>
+    unique()
+  
+  traceElementsElga <- elgaRaw |>
+    filter(parent == '05200')
+  
+  traceElements <- loinc |>
+    filter(LOINC_NUM %in% traceElementsElga$code) %>%
+    pull(baseComponent) |>
+    unique()
+  
+  chemBase <- loinc |>
+    filter(CLASS == 'CHEM') |>
+    pull(baseComponent) |>
+    unique()
+  
+  loincExclude <- loinc |>
+    filter(!is.na(group))
+  
+  loinc |>
+    filter(!LOINC_NUM %in% loincExclude$LOINC_NUM) |>
+    mutate(group = case_when(
+      CLASS == 'CHEM' & SYSTEM %in% c('Body fld', 'Dial fld prt', 
+                                      'Periton fld', 'Plr fld', 'Dial fld', 
+                                      'Saliva', 'Hair', 'Semen') ~ 'extra mat',
+      str_detect(SYSTEM, 'Ser|Plas') & baseComponent %in% traceElements ~ 
+        'trace elememts',
+      str_detect(SYSTEM, 'Ser|Plas') & baseComponent %in% proteins ~ 
+        'proteins',
+      str_detect(SYSTEM, 'Ser|Plas') & baseComponent %in% chemBase ~ 
+        'chemistry',
+      .default = group
+    )) |>
+    bind_rows(loincExclude)
+}
+
+assignMats <- function(loinc){
+  loincExclude <- loinc |>
+    filter(!is.na(group))
+  
+  loinc |>
+    filter(!LOINC_NUM %in% loincExclude$LOINC_NUM) |>
+    mutate(group = case_when(
+      CLASS != 'MICRO' & SYSTEM == 'Urine' ~ 'Urine',
+      CLASS != 'MICRO' & SYSTEM == 'Urine sed' ~ 'Urine sediment',
+      CLASS != 'MICRO' & SYSTEM == 'CSF' ~ 'CSF',
+      CLASS != 'MICRO' & SYSTEM == 'Stool' ~ 'Stool',
+      .default = group
+    )) |>
+    bind_rows(loincExclude)
+}
+
+assignSero <- function(loinc){
+  loincExclude <- loinc |>
+    filter(!is.na(group))
+  
+  loinc |>
+    filter(!LOINC_NUM %in% loincExclude$LOINC_NUM) |>
+    mutate(group = if_else(CLASS == 'SERO', 'Sero',  group)) |>
+    bind_rows(loincExclude)
+}
+
+
 
 
 loincRaw <-  vroom("data/LOINC/2.80/LoincTable/Loinc.csv", 
@@ -238,78 +313,19 @@ loincSorted <- assignMicro(loincRaw) |>
   assignHema() |>
   assignAllergy() |>
   assignTransfusion() |>
-  assignPOCT()
+  assignPOCT() |>
+  assignVitamins() |>
+  assignHormones() |>
+  assignToxoTDM()
+  assignChem() |>
+  assignMats() |>
+  assignSero()
 
 
 sortedCount <- count(loincSorted, group)
 unsorted <- loincSorted |> 
-  filter(is.na(parent))
-unsortedCount <- loincSorted |> 
-  filter(is.na(parent))|> 
-  count(, CLASS)
-
-### medis
-
-medis <- read_html("https://www.thieme-connect.de/products/ejournals/html/10.1055/s-0043-116492") |>
-  html_table()[[4]] 
-  
-
-elgaRaw <- read_excel("data/ELGA/ValueSet-elga-laborparameter.1.propcsv.xlsx", skip = 3)
-elga_structure <- read_excel("data/ELGA/ValueSet-elga-laborstruktur.1.propcsv.xlsx")
-
-#parts <- vroom("data/LOINC/2.80/AccessoryFiles/PartFile/Part.csv")
-#partLink <- vroom("data/LOINC/2.80/AccessoryFiles/PartFile/LoincPartLink_Primary.csv")
-
-elgaCodes <- loincRaw |>
-  inner_join(elgaRaw |> 
-               filter(parent %in% c("08260", '08270', '08280', '08290', '08300',
-                                    '08310', '08330')) |>
-               select(code, parent), 
-             by = join_by(LOINC_NUM == code)) |>
-  mutate(baseComponent = str_split(COMPONENT, '\\.|\\^|/', simplify = TRUE)[,1]) |>
-  mutate(baseComponent = str_remove_all(baseComponent, ' DNA| RNA| Ag| Ab')) |>
-  select(baseComponent, parent) |>
-  mutate(parent = if_else(parent %in% c('08280', '08290'), '08285', parent)) |>
-  distinct() 
-  
-#   filter(baseComponent != "Entamoeba histolytica" & parent != '10790') |>
-#   filter(baseComponent != 'Observation') |>
-#   filter(baseComponent != 'Parainfluenza virus 1+2+3+4' & parent != '10790')
-
-elgaCodes |> 
-  count(baseComponent) |>
-  filter(n > 1) 
-
-
-loincSorted <- 
-
-
-
-  mutate(baseComponent = str_remove_all(baseComponent, ' DNA| RNA| Ag| Ab')) |>
-  left_join(elgaCodes, by='bakGenus') |>
-  |>
-  mutate(baseComponent = str_remove_all(baseComponent, ' DNA| RNA| Ag| Ab')) |>
-  left_join(elgaCodes, by='baseComponent') |>
-  mutate(parent = case_when(
-    !is.na(parent) ~ parent,
-   
-    SYSTEM == 'BldA' ~ "02060",
-    SYSTEM == 'BldV' ~ "02090",
-    SYSTEM == 'BldC' ~ "02100",
-    SYSTEM == 'BldMV' ~ "02120",
-    CLASS == 'HEM/BC' & SYSTEM == 'Bld' ~ '03010',
-    CLASS == 'HEM/BC' & (SYSTEM == 'Bone mar' | 
-                           SYSTEM == 'Bone marrow') ~ '03020',
-    CLASS == 'CELLMARK'  ~ '03030',
-    CLASS == 'HEM/BC' & SYSTEM != 'BoneMar' & SYSTEM != 'Bld' ~ '03050',
-    CLASS == 'ALLERGY' & str_detect(COMPONENT, '\\.IgE') ~ '12020',
-    CLASS == 'ALLERGY' & str_detect(COMPONENT, '\\.IgG') ~ '12090',
-    SYSTEM == 'Urine sed' ~ '13740',
-    CLASS == 'SERO' ~ '1300',
-    SYSTEM == 'Urine' & CLASS == 'CHEM' ~ '13750' ,
-    str_detect(COMPONENT, 'virus|Virus') ~ '10780',
-    str_detect(COMPONENT, 'larva') ~ '10810',
-    str_detect(COMPONENT, '^Candida ') ~ '10800'
-  ))
+  filter(is.na(group))
+unsortedCount <- unsorted |> 
+  count(CLASS)
 
 
