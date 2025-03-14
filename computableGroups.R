@@ -44,6 +44,8 @@ assignMicro <- function(loinc){
     select(-genus) |>
     mutate(group = if_else(str_detect(COMPONENT, 'Virus|virus|HIV|HTLV'), 
                            'Virus', group)) |>
+    mutate(group = if_else(str_detect(COMPONENT, '(B|b)acteria'), 
+                           'Bacteria', group)) |>
     mutate(group = if_else(str_detect(COMPONENT, '^Candida'), "Mycology", 
                            group)) |>
     bind_rows(loincExclude)
@@ -307,6 +309,15 @@ assignSero <- function(loinc){
     bind_rows(loincExclude)
 }
 
+assignGenetics <- function(loinc){
+  loincExclude <- loinc |>
+    filter(!is.na(group))
+  
+  loinc |>
+    filter(!LOINC_NUM %in% loincExclude$LOINC_NUM) |>
+    mutate(group = if_else(str_detect(CLASS, 'MOLPATH'), 'Genetics',  group)) |>
+    bind_rows(loincExclude)
+}
 
 
 
@@ -340,7 +351,8 @@ loincSorted <- assignMicro(loincRaw) |>
   assignToxoTDM() |>
   assignChem() |>
   assignMats() |>
-  assignSero()
+  assignSero() |>
+  assignGenetics()
 
 
 sortedCount <- count(loincSorted, group)
