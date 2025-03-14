@@ -44,7 +44,7 @@ assignMicro <- function(loinc){
     select(-genus) |>
     mutate(group = if_else(str_detect(COMPONENT, 'Virus|virus|HIV|HTLV'), 
                            'Virus', group)) |>
-    mutate(group = if_else(str_detect(COMPONENT, '^Candida'), Mycology, 
+    mutate(group = if_else(str_detect(COMPONENT, '^Candida'), "Mycology", 
                            group)) |>
     bind_rows(loincExclude)
 }
@@ -59,6 +59,13 @@ assignPOCT <- function(loinc){
     select(COMPONENT, PROPERTY, TIME_ASPCT, SCALE_TYP, METHOD_TYP) |>
     distinct()
   
+  # panels <- 
+  #   vroom("data/LOINC/2.80/AccessoryFiles/PanelsAndForms/PanelsAndForms.csv",
+  #         col_types = cols(.default = col_character()))
+  # 
+  # bgaPanels <- panels |>
+  #   filter(str_detect(ParentName, '(G|g)as '))
+  
   bgaBlood <- loinc |>
     filter(!LOINC_NUM %in% loincExclude$LOINC_NUM) |>
     filter(SYSTEM == 'Bld') |>
@@ -66,6 +73,13 @@ assignPOCT <- function(loinc){
                by = join_by(COMPONENT, PROPERTY, 
                             TIME_ASPCT, SCALE_TYP, METHOD_TYP)) |>
     mutate(group = 'BGA & POCT')
+  
+  # bgaBlood2 <- loinc |>
+  #   filter(!LOINC_NUM %in% loincExclude$LOINC_NUM) |>
+  #   filter(!LOINC_NUM %in% bgaBlood$LOINC_NUM) |>
+  #   filter(LOINC_NUM %in% bgaPanels$Loinc) |>
+  #   filter(SYSTEM == 'Bld') |>
+  #   mutate(group = 'BGA & POCT')
   
   loinc |>
     filter(!LOINC_NUM %in% loincExclude$LOINC_NUM) |>
@@ -256,11 +270,11 @@ assignChem <- function(loinc){
       CLASS == 'CHEM' & SYSTEM %in% c('Body fld', 'Dial fld prt', 
                                       'Periton fld', 'Plr fld', 'Dial fld', 
                                       'Saliva', 'Hair', 'Semen') ~ 'extra mat',
-      str_detect(SYSTEM, 'Ser|Plas') & baseComponent %in% traceElements ~ 
+      str_detect(SYSTEM, 'Ser|Plas|Bld') & baseComponent %in% traceElements ~ 
         'trace elememts',
-      str_detect(SYSTEM, 'Ser|Plas') & baseComponent %in% proteins ~ 
+      str_detect(SYSTEM, 'Ser|Plas|Bld') & baseComponent %in% proteins ~ 
         'proteins',
-      str_detect(SYSTEM, 'Ser|Plas') & baseComponent %in% chemBase ~ 
+      str_detect(SYSTEM, 'Ser|Plas|Bld') & baseComponent %in% chemBase ~ 
         'chemistry',
       .default = group
     )) |>
@@ -307,7 +321,14 @@ loincRaw <-  vroom("data/LOINC/2.80/LoincTable/Loinc.csv",
   filter(ORDER_OBS != "Order") |> # nur Codes zur Darstellung
   mutate(group=NA_character_)
 
-
+loincAll <-  vroom("data/LOINC/2.80/LoincTable/Loinc.csv", 
+                               col_types = cols(.default = col_character())) %>%
+  filter(CLASSTYPE == 1) %>%  # https://simplifier.net/hl7-oo/laboratory-tests-and-panels-uv-ips-duplicate-3
+  filter(!CLASS %in% c("CHALSKIN", "H&P.HX.LAB", "H&P.HX", "NR STATS")) %>%
+  filter(!CLASS %in% c("ABXBACT")) %>% # Bakt nicht für MIO-Laborbefund
+  filter(!str_detect(COMPONENT,'Bacteria identified')) %>% # Bakt nicht für MIO-Laborbefund
+  filter(!str_detect(CLASS, "PATH\\.PROTOCOLS\\.")) %>%
+  filter(STATUS == "ACTIVE")
 
 loincSorted <- assignMicro(loincRaw) |>
   assignHema() |>
@@ -316,7 +337,7 @@ loincSorted <- assignMicro(loincRaw) |>
   assignPOCT() |>
   assignVitamins() |>
   assignHormones() |>
-  assignToxoTDM()
+  assignToxoTDM() |>
   assignChem() |>
   assignMats() |>
   assignSero()
