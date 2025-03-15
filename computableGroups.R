@@ -271,7 +271,8 @@ assignChem <- function(loinc){
     mutate(group = case_when(
       CLASS == 'CHEM' & SYSTEM %in% c('Body fld', 'Dial fld prt', 
                                       'Periton fld', 'Plr fld', 'Dial fld', 
-                                      'Saliva', 'Hair', 'Semen') ~ 'extra mat',
+                                      'Saliva', 'Hair', 'Semen', 'Amnio fld') ~
+        'extra mat',
       str_detect(SYSTEM, 'Ser|Plas|Bld') & baseComponent %in% traceElements ~ 
         'trace elememts',
       str_detect(SYSTEM, 'Ser|Plas|Bld') & baseComponent %in% proteins ~ 
@@ -319,6 +320,15 @@ assignGenetics <- function(loinc){
     bind_rows(loincExclude)
 }
 
+assignCoagulation <- function(loinc){
+  loincExclude <- loinc |>
+    filter(!is.na(group))
+  
+  loinc |>
+    filter(!LOINC_NUM %in% loincExclude$LOINC_NUM) |>
+    mutate(group = if_else(str_detect(CLASS, 'COAG'), 'coagulation',  group)) |>
+    bind_rows(loincExclude)
+}
 
 
 loincRaw <-  vroom("data/LOINC/2.80/LoincTable/Loinc.csv", 
